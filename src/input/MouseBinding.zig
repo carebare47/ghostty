@@ -34,6 +34,24 @@ pub const MouseButton = enum {
     scroll_left,
     scroll_right,
 
+    /// Convert from the terminal mouse button type. Returns null for unknown.
+    pub fn fromMouseButton(button: @import("mouse.zig").Button) ?MouseButton {
+        return switch (button) {
+            .left => .left,
+            .right => .right,
+            .middle => .middle,
+            .four => .button_4,
+            .five => .button_5,
+            .six => .button_6,
+            .seven => .button_7,
+            .eight => .button_8,
+            .nine => .button_9,
+            .ten => .button_10,
+            .eleven => .button_11,
+            .unknown => null,
+        };
+    }
+
     pub fn isScroll(self: MouseButton) bool {
         return switch (self) {
             .scroll_up, .scroll_down, .scroll_left, .scroll_right => true,
@@ -194,14 +212,10 @@ const TriggerContext = struct {
 pub const Set = struct {
     const HashMap = std.ArrayHashMapUnmanaged(
         Trigger,
-        Entry,
+        Action,
         TriggerContext,
         true,
     );
-
-    pub const Entry = struct {
-        action: Action,
-    };
 
     bindings: HashMap = .{},
 
@@ -216,7 +230,7 @@ pub const Set = struct {
         trigger: Trigger,
         action: Action,
     ) Allocator.Error!void {
-        try self.bindings.put(alloc, trigger, .{ .action = action });
+        try self.bindings.put(alloc, trigger, action);
     }
 
     pub fn remove(
@@ -226,7 +240,7 @@ pub const Set = struct {
         _ = self.bindings.swapRemove(trigger);
     }
 
-    pub fn get(self: Set, trigger: Trigger) ?Entry {
+    pub fn get(self: Set, trigger: Trigger) ?Action {
         return self.bindings.get(trigger);
     }
 
@@ -272,8 +286,8 @@ pub const Set = struct {
         };
 
         // Deep clone any actions that own allocated memory
-        for (result.bindings.values()) |*entry| {
-            entry.action = try entry.action.clone(alloc);
+        for (result.bindings.values()) |*action| {
+            action.* = try action.clone(alloc);
         }
 
         return result;
@@ -284,8 +298,8 @@ pub const Set = struct {
 
         var it = self.bindings.iterator();
         while (it.next()) |entry| {
-            const other_entry = other.bindings.get(entry.key_ptr.*) orelse return false;
-            if (!entry.value_ptr.action.equal(other_entry.action)) return false;
+            const other_action = other.bindings.get(entry.key_ptr.*) orelse return false;
+            if (!entry.value_ptr.equal(other_action)) return false;
         }
 
         return true;
@@ -467,7 +481,7 @@ test "Set: put and get" {
     try set.put(alloc, trigger, .{ .copy_to_clipboard = .{} });
 
     const entry = set.get(trigger).?;
-    try testing.expect(entry.action == .copy_to_clipboard);
+    try testing.expect(entry == .copy_to_clipboard);
 }
 
 test "Set: parseAndPut" {
@@ -481,19 +495,9 @@ test "Set: parseAndPut" {
 
     const trigger = try Trigger.parse("ctrl+left:double");
     const entry = set.get(trigger).?;
-    try testing.expect(entry.action == .copy_to_clipboard);
+    try testing.expect(entry == .copy_to_clipboard);
 }
 
-test "Set: parseAndPut rejects unconsumed and performable prefixes" {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    var set: Set = .{};
-    defer set.deinit(alloc);
-
-    try testing.expectError(Error.InvalidFormat, set.parseAndPut(alloc, "unconsumed:left=ignore"));
-    try testing.expectError(Error.InvalidFormat, set.parseAndPut(alloc, "performable:right=paste_from_clipboard"));
-}
 
 test "Set: parseAndPut unbind" {
     const testing = std.testing;
@@ -555,21 +559,22 @@ test "Set: overwrite existing binding" {
 
     const trigger = try Trigger.parse("left");
     const entry = set.get(trigger).?;
-    try testing.expect(entry.action == .paste_from_clipboard);
+    try testing.expect(entry == .paste_from_clipboard);
     try testing.expectEqual(@as(usize, 1), set.bindings.count());
 }
 
-test "Set: parseAndPut rejects all and global flags" {
+test "Set: parseAndPut rejects keybind flag prefixes" {
     const testing = std.testing;
     const alloc = testing.allocator;
 
     var set: Set = .{};
     defer set.deinit(alloc);
 
+    try testing.expectError(Error.InvalidFormat, set.parseAndPut(alloc, "unconsumed:left=ignore"));
+    try testing.expectError(Error.InvalidFormat, set.parseAndPut(alloc, "performable:right=paste_from_clipboard"));
     try testing.expectError(Error.InvalidFormat, set.parseAndPut(alloc, "all:left=ignore"));
     try testing.expectError(Error.InvalidFormat, set.parseAndPut(alloc, "global:left=ignore"));
 }
-
 
 test "Set: click count colon is not confused with flag prefix colon" {
     const testing = std.testing;
@@ -586,7 +591,7 @@ test "Set: click count colon is not confused with flag prefix colon" {
         .click_count = 2,
     };
     const entry = set.get(trigger).?;
-    try testing.expect(entry.action == .copy_to_clipboard);
+    try testing.expect(entry == .copy_to_clipboard);
 }
 
 test "Set: unbind on never-bound trigger is a no-op" {

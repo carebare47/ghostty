@@ -8007,12 +8007,12 @@ pub const MouseBindings = struct {
         var iter = self.set.bindings.iterator();
         while (iter.next()) |next| {
             const trigger = next.key_ptr.*;
-            const entry = next.value_ptr.*;
+            const action = next.value_ptr.*;
 
             var writer: std.Io.Writer = .fixed(&buf);
 
             trigger.format(&writer) catch return error.OutOfMemory;
-            writer.print("={f}", .{entry.action}) catch return error.OutOfMemory;
+            writer.print("={f}", .{action}) catch return error.OutOfMemory;
             try formatter.formatEntry([]const u8, buf[0..writer.end]);
         }
     }
