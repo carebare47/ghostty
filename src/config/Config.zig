@@ -1869,6 +1869,29 @@ class: ?[:0]const u8 = null,
 /// Key tables are available since Ghostty 1.3.0.
 keybind: Keybinds = .{},
 
+/// Bind a mouse button (with optional modifiers and click count) to an
+/// action. Mouse bindings are simpler than key bindings: no key tables,
+/// no chaining, just `trigger=action`.
+///
+/// A trigger has the form `[mods+]button[:click_count]`. Modifiers are
+/// `shift`, `ctrl`, `alt`, `super` separated by `+`. The button is one
+/// of `left`, `right`, `middle`, `button_4`..`button_11`, `scroll_up`,
+/// `scroll_down`, `scroll_left`, `scroll_right`. The optional click
+/// count (default 1 for buttons, 0 for scroll) selects double-click,
+/// triple-click, etc.
+///
+/// A few special values are accepted:
+///
+///   * `clear` removes all mouse bindings.
+///   * An empty value resets the set to empty.
+///
+/// Example:
+///
+///     mouse-bind = ctrl+left=open_url
+///     mouse-bind = ctrl+shift+left:2=extend_selection
+///
+@"mouse-bind": MouseBindings = .{},
+
 /// Remap modifier keys within Ghostty. This allows you to swap or reassign
 /// modifier keys at the application level without affecting system-wide
 /// settings.
@@ -7940,6 +7963,60 @@ pub const Keybinds = struct {
         // Tables should be cleared, root set has defaults
         try testing.expectEqual(0, keybinds.tables.count());
         try testing.expect(keybinds.set.bindings.count() > 0);
+    }
+};
+
+/// Stores a set of mouse bindings.
+pub const MouseBindings = struct {
+    set: inputpkg.MouseBinding.Set = .{},
+
+    pub fn parseCLI(self: *MouseBindings, alloc: Allocator, input_: ?[]const u8) !void {
+        const value = input_ orelse return error.ValueRequired;
+
+        if (value.len == 0) {
+            self.set = .{};
+            return;
+        }
+
+        if (std.mem.eql(u8, value, "clear")) {
+            self.set = .{};
+            return;
+        }
+
+        try self.set.parseAndPut(alloc, value);
+    }
+
+    pub fn clone(self: *const MouseBindings, alloc: Allocator) !MouseBindings {
+        return .{ .set = try self.set.clone(alloc) };
+    }
+
+    pub fn equal(self: MouseBindings, other: MouseBindings) bool {
+        return self.set.equal(other.set);
+    }
+
+    pub fn formatEntry(self: MouseBindings, formatter: formatterpkg.EntryFormatter) !void {
+        if (self.set.bindings.count() == 0) {
+            try formatter.formatEntry(void, {});
+            return;
+        }
+
+        var buf: [1024]u8 = undefined;
+        var iter = self.set.bindings.iterator();
+        while (iter.next()) |next| {
+            const trigger = next.key_ptr.*;
+            const entry = next.value_ptr.*;
+
+            var writer: std.Io.Writer = .fixed(&buf);
+
+            // Format flags
+            if (!entry.flags.consumed) writer.writeAll("unconsumed:") catch return error.OutOfMemory;
+            if (entry.flags.performable) writer.writeAll("performable:") catch return error.OutOfMemory;
+
+            // Format trigger=action
+            trigger.format(&writer) catch return error.OutOfMemory;
+            writer.print("={f}", .{entry.action}) catch return error.OutOfMemory;
+            try formatter.formatEntry([]const u8, buf[0..writer.end]);
+        }
     }
 };
 
