@@ -3569,7 +3569,7 @@ pub fn scrollCallback(
             .click_count = 0,
         };
 
-        if (self.config.mouse_bind.set.get(trigger)) |entry| {
+        if (self.config.mouse_bind.set.get(trigger)) |bound_action| {
             const count: usize = switch (scroll_button) {
                 .scroll_up, .scroll_down => @intCast(@abs(y.delta)),
                 .scroll_left, .scroll_right => @intCast(@abs(x.delta)),
@@ -3577,14 +3577,13 @@ pub fn scrollCallback(
             };
 
             for (0..count) |_| {
-                if (self.performBindingAction(entry.action)) |_| {} else |err| {
+                if (self.performBindingAction(bound_action)) |_| {} else |err| {
                     log.warn("error performing mouse binding action err={}", .{err});
                     break;
                 }
             }
 
-            // Closing actions destroy self, so we must not touch it.
-            if (closingAction(entry.action)) return;
+            if (closingAction(bound_action)) return;
 
             try self.queueRender();
             return;
@@ -3860,20 +3859,8 @@ pub fn mouseButtonCallback(
     // happens later in this function. Multi-click bindings (e.g. left:double)
     // are not yet supported; this covers the primary use cases of modifier+click.
     if (action == .press) mouse_binding: {
-        const mouse_button: input.MouseBinding.MouseButton = switch (button) {
-            .left => .left,
-            .right => .right,
-            .middle => .middle,
-            .four => .button_4,
-            .five => .button_5,
-            .six => .button_6,
-            .seven => .button_7,
-            .eight => .button_8,
-            .nine => .button_9,
-            .ten => .button_10,
-            .eleven => .button_11,
-            .unknown => break :mouse_binding,
-        };
+        const mouse_button = input.MouseBinding.MouseButton.fromMouseButton(button) orelse
+            break :mouse_binding;
 
         const trigger: input.MouseBinding.Trigger = .{
             .button = mouse_button,
@@ -3881,12 +3868,12 @@ pub fn mouseButtonCallback(
             .click_count = 1,
         };
 
-        if (self.config.mouse_bind.set.get(trigger)) |entry| {
-            if (self.performBindingAction(entry.action)) |_| {} else |err| {
+        if (self.config.mouse_bind.set.get(trigger)) |bound_action| {
+            if (self.performBindingAction(bound_action)) |_| {} else |err| {
                 log.warn("error performing mouse binding action err={}", .{err});
                 break :mouse_binding;
             }
-            if (closingAction(entry.action)) return true;
+            if (closingAction(bound_action)) return true;
             return true;
         }
     }
