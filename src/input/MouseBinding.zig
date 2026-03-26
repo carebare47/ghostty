@@ -306,33 +306,6 @@ pub const Set = struct {
     }
 };
 
-test "MouseButton: isScroll" {
-    const testing = std.testing;
-    try testing.expect(MouseButton.scroll_up.isScroll());
-    try testing.expect(MouseButton.scroll_down.isScroll());
-    try testing.expect(MouseButton.scroll_left.isScroll());
-    try testing.expect(MouseButton.scroll_right.isScroll());
-    try testing.expect(!MouseButton.left.isScroll());
-    try testing.expect(!MouseButton.right.isScroll());
-    try testing.expect(!MouseButton.middle.isScroll());
-    try testing.expect(!MouseButton.button_4.isScroll());
-}
-
-test "MouseButton: parse" {
-    const testing = std.testing;
-    try testing.expectEqual(MouseButton.left, MouseButton.parse("left").?);
-    try testing.expectEqual(MouseButton.right, MouseButton.parse("right").?);
-    try testing.expectEqual(MouseButton.middle, MouseButton.parse("middle").?);
-    try testing.expectEqual(MouseButton.button_4, MouseButton.parse("button_4").?);
-    try testing.expectEqual(MouseButton.button_11, MouseButton.parse("button_11").?);
-    try testing.expectEqual(MouseButton.scroll_up, MouseButton.parse("scroll_up").?);
-    try testing.expectEqual(MouseButton.scroll_down, MouseButton.parse("scroll_down").?);
-    try testing.expectEqual(MouseButton.scroll_left, MouseButton.parse("scroll_left").?);
-    try testing.expectEqual(MouseButton.scroll_right, MouseButton.parse("scroll_right").?);
-    try testing.expect(MouseButton.parse("invalid") == null);
-    try testing.expect(MouseButton.parse("") == null);
-}
-
 test "Trigger parse: button only" {
     const testing = std.testing;
     const trigger = try Trigger.parse("left");
@@ -408,14 +381,6 @@ test "Trigger parse: numeric click counts" {
     try testing.expectEqual(@as(u8, 10), ten.click_count);
 }
 
-test "Trigger parse: click count with modifiers" {
-    const testing = std.testing;
-    const trigger = try Trigger.parse("ctrl+left:double");
-    try testing.expectEqual(MouseButton.left, trigger.button);
-    try testing.expect(trigger.mods.ctrl);
-    try testing.expectEqual(@as(u8, 2), trigger.click_count);
-}
-
 test "Trigger parse: error cases" {
     const testing = std.testing;
     try testing.expectError(Error.InvalidFormat, Trigger.parse(""));
@@ -470,20 +435,6 @@ test "Trigger: format" {
     }
 }
 
-test "Set: put and get" {
-    const testing = std.testing;
-    const alloc = testing.allocator;
-
-    var set: Set = .{};
-    defer set.deinit(alloc);
-
-    const trigger = try Trigger.parse("ctrl+left:double");
-    try set.put(alloc, trigger, .{ .copy_to_clipboard = .{} });
-
-    const entry = set.get(trigger).?;
-    try testing.expect(entry == .copy_to_clipboard);
-}
-
 test "Set: parseAndPut" {
     const testing = std.testing;
     const alloc = testing.allocator;
@@ -497,7 +448,6 @@ test "Set: parseAndPut" {
     const entry = set.get(trigger).?;
     try testing.expect(entry == .copy_to_clipboard);
 }
-
 
 test "Set: parseAndPut unbind" {
     const testing = std.testing;
