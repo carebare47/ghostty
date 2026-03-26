@@ -1869,26 +1869,29 @@ class: ?[:0]const u8 = null,
 /// Key tables are available since Ghostty 1.3.0.
 keybind: Keybinds = .{},
 
-/// Bind a mouse button (with optional modifiers and click count) to an
-/// action. Mouse bindings are simpler than key bindings: no key tables,
-/// no chaining, just `trigger=action`.
+/// Bind a mouse button or scroll event (with optional modifiers) to an
+/// action. Uses the same action set as `keybind`. Mouse bindings are
+/// simpler than key bindings: no key tables, no chaining, just
+/// `trigger=action`.
 ///
 /// A trigger has the form `[mods+]button[:click_count]`. Modifiers are
 /// `shift`, `ctrl`, `alt`, `super` separated by `+`. The button is one
 /// of `left`, `right`, `middle`, `button_4`..`button_11`, `scroll_up`,
 /// `scroll_down`, `scroll_left`, `scroll_right`. The optional click
-/// count (default 1 for buttons, 0 for scroll) selects double-click,
-/// triple-click, etc.
+/// count (default 1 for buttons) selects double-click, triple-click,
+/// etc. Scroll triggers do not support click counts.
 ///
-/// A few special values are accepted:
+/// There are no default mouse bindings. Existing mouse behavior
+/// (selection, middle-click paste, scroll) is unchanged unless
+/// explicitly overridden.
 ///
-///   * `clear` removes all mouse bindings.
-///   * An empty value resets the set to empty.
+/// `clear` and empty value both remove all mouse bindings.
 ///
 /// Example:
 ///
-///     mouse-bind = ctrl+left=open_url
-///     mouse-bind = ctrl+shift+left:2=extend_selection
+///     mouse-bind = ctrl+scroll_up=increase_font_size:1
+///     mouse-bind = ctrl+scroll_down=decrease_font_size:1
+///     mouse-bind = ctrl+right=copy_url_to_clipboard
 ///
 @"mouse-bind": MouseBindings = .{},
 
@@ -8008,15 +8011,52 @@ pub const MouseBindings = struct {
 
             var writer: std.Io.Writer = .fixed(&buf);
 
-            // Format flags
             if (!entry.flags.consumed) writer.writeAll("unconsumed:") catch return error.OutOfMemory;
             if (entry.flags.performable) writer.writeAll("performable:") catch return error.OutOfMemory;
-
-            // Format trigger=action
             trigger.format(&writer) catch return error.OutOfMemory;
             writer.print("={f}", .{entry.action}) catch return error.OutOfMemory;
             try formatter.formatEntry([]const u8, buf[0..writer.end]);
         }
+    }
+    test "parseCLI" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var bindings: MouseBindings = .{};
+        try bindings.parseCLI(alloc, "ctrl+scroll_up=increase_font_size:1");
+        try testing.expectEqual(@as(usize, 1), bindings.set.bindings.count());
+    }
+
+    test "parseCLI null returns error" {
+        const testing = std.testing;
+        var bindings: MouseBindings = .{};
+        try testing.expectError(error.ValueRequired, bindings.parseCLI(testing.allocator, null));
+    }
+
+    test "parseCLI clear" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var bindings: MouseBindings = .{};
+        try bindings.parseCLI(alloc, "ctrl+scroll_up=increase_font_size:1");
+        try bindings.parseCLI(alloc, "clear");
+        try testing.expectEqual(@as(usize, 0), bindings.set.bindings.count());
+    }
+
+    test "parseCLI empty resets" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var bindings: MouseBindings = .{};
+        try bindings.parseCLI(alloc, "ctrl+scroll_up=increase_font_size:1");
+        try bindings.parseCLI(alloc, "");
+        try testing.expectEqual(@as(usize, 0), bindings.set.bindings.count());
     }
 };
 
