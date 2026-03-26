@@ -8011,8 +8011,6 @@ pub const MouseBindings = struct {
 
             var writer: std.Io.Writer = .fixed(&buf);
 
-            if (!entry.flags.consumed) writer.writeAll("unconsumed:") catch return error.OutOfMemory;
-            if (entry.flags.performable) writer.writeAll("performable:") catch return error.OutOfMemory;
             trigger.format(&writer) catch return error.OutOfMemory;
             writer.print("={f}", .{entry.action}) catch return error.OutOfMemory;
             try formatter.formatEntry([]const u8, buf[0..writer.end]);
