@@ -17,8 +17,9 @@ pub const Error = error{
     InvalidAction,
 };
 
-/// Mouse buttons including scroll directions. This extends the base
-/// mouse.Button with scroll wheel directions that can be bound.
+/// Mouse buttons and scroll directions that can be used as binding triggers.
+/// Covers the same physical buttons as mouse.Button (with different naming
+/// for config readability) plus scroll wheel directions.
 pub const MouseButton = enum {
     left,
     right,
@@ -123,7 +124,6 @@ pub const Trigger = struct {
 
         if (!button_set) return Error.InvalidFormat;
 
-        // Parse click count
         if (click_count_part) |count_str| {
             if (result.button.isScroll()) return Error.InvalidFormat;
             if (count_str.len == 0) return Error.InvalidFormat;
@@ -152,11 +152,11 @@ pub const Trigger = struct {
         self: Trigger,
         writer: *std.Io.Writer,
     ) !void {
-        // Emit modifiers in struct field order (matches Binding.zig convention)
-        if (self.mods.shift) try writer.writeAll("shift+");
+        // Emit modifiers in the same order as Binding.Trigger.format
+        if (self.mods.super) try writer.writeAll("super+");
         if (self.mods.ctrl) try writer.writeAll("ctrl+");
         if (self.mods.alt) try writer.writeAll("alt+");
-        if (self.mods.super) try writer.writeAll("super+");
+        if (self.mods.shift) try writer.writeAll("shift+");
 
         try writer.writeAll(@tagName(self.button));
 
@@ -239,7 +239,6 @@ pub const Set = struct {
     }
 
     /// Parse a "trigger=action" string and add it to the set.
-    /// Supports optional `unconsumed:` and `performable:` prefixes.
     /// The special action `unbind` removes the trigger from the set.
     pub fn parseAndPut(
         self: *Set,
@@ -249,7 +248,6 @@ pub const Set = struct {
         var flags: Flags = .{};
         var input: []const u8 = raw_input;
 
-        // Parse flag prefixes
         while (true) {
             const colon_idx = std.mem.indexOf(u8, input, ":") orelse break;
             const prefix = input[0..colon_idx];
@@ -274,7 +272,6 @@ pub const Set = struct {
             input = input[colon_idx + 1 ..];
         }
 
-        // Find the '=' separating trigger from action
         const eql_idx = std.mem.indexOfScalar(u8, input, '=') orelse
             return Error.InvalidFormat;
 
@@ -318,10 +315,6 @@ pub const Set = struct {
         return true;
     }
 };
-
-// ---------------------------------------------------------------------------
-// Tests
-// ---------------------------------------------------------------------------
 
 test "MouseButton: isScroll" {
     const testing = std.testing;
@@ -467,7 +460,7 @@ test "Trigger: format" {
         var buf: std.Io.Writer.Allocating = .init(alloc);
         defer buf.deinit();
         try trigger.format(&buf.writer);
-        try testing.expectEqualSlices(u8, "shift+ctrl+left:2", buf.written());
+        try testing.expectEqualSlices(u8, "ctrl+shift+left:2", buf.written());
     }
 
     {
@@ -606,4 +599,70 @@ test "Set: overwrite existing binding" {
     const entry = set.get(trigger).?;
     try testing.expect(entry.action == .paste_from_clipboard);
     try testing.expectEqual(@as(usize, 1), set.bindings.count());
+}
+
+test "Set: parseAndPut rejects all and global flags" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var set: Set = .{};
+    defer set.deinit(alloc);
+
+    try testing.expectError(Error.InvalidFormat, set.parseAndPut(alloc, "all:left=ignore"));
+    try testing.expectError(Error.InvalidFormat, set.parseAndPut(alloc, "global:left=ignore"));
+}
+
+test "Set: parseAndPut rejects duplicate flag prefixes" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var set: Set = .{};
+    defer set.deinit(alloc);
+
+    try testing.expectError(Error.InvalidFormat, set.parseAndPut(alloc, "unconsumed:unconsumed:left=ignore"));
+    try testing.expectError(Error.InvalidFormat, set.parseAndPut(alloc, "performable:performable:left=ignore"));
+}
+
+test "Set: parseAndPut with flag prefix and click count colon" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var set: Set = .{};
+    defer set.deinit(alloc);
+
+    try set.parseAndPut(alloc, "unconsumed:ctrl+left:double=copy_to_clipboard");
+
+    const trigger: Trigger = .{
+        .button = .left,
+        .mods = .{ .ctrl = true },
+        .click_count = 2,
+    };
+    const entry = set.get(trigger).?;
+    try testing.expect(entry.action == .copy_to_clipboard);
+    try testing.expect(!entry.flags.consumed);
+}
+
+test "Set: unbind on never-bound trigger is a no-op" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var set: Set = .{};
+    defer set.deinit(alloc);
+
+    try set.parseAndPut(alloc, "right=unbind");
+    try testing.expectEqual(@as(usize, 0), set.bindings.count());
+}
+
+test "Set: equal detects differing flags" {
+    const testing = std.testing;
+    const alloc = testing.allocator;
+
+    var set1: Set = .{};
+    defer set1.deinit(alloc);
+    var set2: Set = .{};
+    defer set2.deinit(alloc);
+
+    try set1.parseAndPut(alloc, "left=ignore");
+    try set2.parseAndPut(alloc, "unconsumed:left=ignore");
+    try testing.expect(!set1.equal(set2));
 }

@@ -3577,11 +3577,14 @@ pub fn scrollCallback(
             };
 
             for (0..count) |_| {
-                _ = self.performBindingAction(entry.action) catch |err| {
+                if (self.performBindingAction(entry.action)) |_| {} else |err| {
                     log.warn("error performing mouse binding action err={}", .{err});
                     break;
-                };
+                }
             }
+
+            // Closing actions destroy self, so we must not touch it.
+            if (closingAction(entry.action)) return;
 
             try self.queueRender();
             return;
@@ -3879,7 +3882,11 @@ pub fn mouseButtonCallback(
         };
 
         if (self.config.mouse_bind.set.get(trigger)) |entry| {
-            _ = try self.performBindingAction(entry.action);
+            if (self.performBindingAction(entry.action)) |_| {} else |err| {
+                log.warn("error performing mouse binding action err={}", .{err});
+                break :mouse_binding;
+            }
+            if (closingAction(entry.action)) return true;
             return true;
         }
     }
