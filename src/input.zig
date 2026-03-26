@@ -18,6 +18,7 @@ pub const paste = @import("input/paste.zig");
 pub const ctrlOrSuper = key.ctrlOrSuper;
 pub const Action = key.Action;
 pub const Binding = @import("input/Binding.zig");
+pub const MouseBinding = @import("input/MouseBinding.zig");
 pub const Command = command.Command;
 pub const Link = @import("input/Link.zig");
 pub const Key = key.Key;
