@@ -295,6 +295,7 @@ const DerivedConfig = struct {
     /// For docs for these, see the associated config they are derived from.
     original_font_size: f32,
     keybind: configpkg.Keybinds,
+    mouse_bind: configpkg.MouseBindings,
     abnormal_command_exit_runtime_ms: u32,
     clipboard_read: configpkg.ClipboardAccess,
     clipboard_write: configpkg.ClipboardAccess,
@@ -373,6 +374,7 @@ const DerivedConfig = struct {
         return .{
             .original_font_size = config.@"font-size",
             .keybind = try config.keybind.clone(alloc),
+            .mouse_bind = try config.@"mouse-bind".clone(alloc),
             .abnormal_command_exit_runtime_ms = config.@"abnormal-command-exit-runtime",
             .clipboard_read = config.@"clipboard-read",
             .clipboard_write = config.@"clipboard-write",
@@ -3466,6 +3468,42 @@ pub fn scrollCallback(
 
     // log.info("SCROLL: delta_y={} delta_x={}", .{ y.delta, x.delta });
 
+    // Check mouse bindings for scroll events before default behavior.
+    mouse_bind: {
+        const scroll_button: input.MouseBinding.MouseButton = if (y.delta != 0)
+            (if (y.delta > 0) .scroll_up else .scroll_down)
+        else if (x.delta != 0)
+            (if (x.delta > 0) .scroll_right else .scroll_left)
+        else
+            break :mouse_bind;
+
+        const trigger: input.MouseBinding.Trigger = .{
+            .button = scroll_button,
+            .mods = self.mouse.mods,
+            .click_count = 0,
+        };
+
+        if (self.config.mouse_bind.set.get(trigger)) |bound_action| {
+            const count: usize = switch (scroll_button) {
+                .scroll_up, .scroll_down => @intCast(@abs(y.delta)),
+                .scroll_left, .scroll_right => @intCast(@abs(x.delta)),
+                else => 1,
+            };
+
+            for (0..count) |_| {
+                if (self.performBindingAction(bound_action)) |_| {} else |err| {
+                    log.warn("error performing mouse binding action err={}", .{err});
+                    break;
+                }
+            }
+
+            if (closingAction(bound_action)) return;
+
+            try self.queueRender();
+            return;
+        }
+    }
+
     {
         self.renderer_state.mutex.lock();
         defer self.renderer_state.mutex.unlock();
@@ -3729,6 +3767,30 @@ pub fn mouseButtonCallback(
     // locking/unlocking but clicking isn't that frequent enough to be a
     // bottleneck.
     const shift_capture = self.mouseShiftCapture(true);
+
+    // Check mouse bindings for button press events before default behavior.
+    // Note: click_count is always 1 here because the multi-click tracking
+    // happens later in this function. Multi-click bindings (e.g. left:double)
+    // are not yet supported; this covers the primary use cases of modifier+click.
+    if (action == .press) mouse_binding: {
+        const mouse_button = input.MouseBinding.MouseButton.fromMouseButton(button) orelse
+            break :mouse_binding;
+
+        const trigger: input.MouseBinding.Trigger = .{
+            .button = mouse_button,
+            .mods = mods.binding(),
+            .click_count = 1,
+        };
+
+        if (self.config.mouse_bind.set.get(trigger)) |bound_action| {
+            if (self.performBindingAction(bound_action)) |_| {} else |err| {
+                log.warn("error performing mouse binding action err={}", .{err});
+                break :mouse_binding;
+            }
+            if (closingAction(bound_action)) return true;
+            return true;
+        }
+    }
 
     // Shift-click continues the previous mouse state if we have a selection.
     // cursorPosCallback will also do a mouse report so we don't need to do any

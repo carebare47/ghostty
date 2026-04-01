@@ -1869,6 +1869,32 @@ class: ?[:0]const u8 = null,
 /// Key tables are available since Ghostty 1.3.0.
 keybind: Keybinds = .{},
 
+/// Bind a mouse button or scroll event (with optional modifiers) to an
+/// action. Uses the same action set as `keybind`. Mouse bindings are
+/// simpler than key bindings: no key tables, no chaining, just
+/// `trigger=action`.
+///
+/// A trigger has the form `[mods+]button[:click_count]`. Modifiers are
+/// `shift`, `ctrl`, `alt`, `super` separated by `+`. The button is one
+/// of `left`, `right`, `middle`, `button_4`..`button_11`, `scroll_up`,
+/// `scroll_down`, `scroll_left`, `scroll_right`. The optional click
+/// count (default 1 for buttons) selects double-click, triple-click,
+/// etc. Scroll triggers do not support click counts.
+///
+/// There are no default mouse bindings. Existing mouse behavior
+/// (selection, middle-click paste, scroll) is unchanged unless
+/// explicitly overridden.
+///
+/// `clear` and empty value both remove all mouse bindings.
+///
+/// Example:
+///
+///     mouse-bind = ctrl+scroll_up=increase_font_size:1
+///     mouse-bind = ctrl+scroll_down=decrease_font_size:1
+///     mouse-bind = ctrl+right=copy_url_to_clipboard
+///
+@"mouse-bind": MouseBindings = .{},
+
 /// Remap modifier keys within Ghostty. This allows you to swap or reassign
 /// modifier keys at the application level without affecting system-wide
 /// settings.
@@ -7940,6 +7966,95 @@ pub const Keybinds = struct {
         // Tables should be cleared, root set has defaults
         try testing.expectEqual(0, keybinds.tables.count());
         try testing.expect(keybinds.set.bindings.count() > 0);
+    }
+};
+
+/// Stores a set of mouse bindings.
+pub const MouseBindings = struct {
+    set: inputpkg.MouseBinding.Set = .{},
+
+    pub fn parseCLI(self: *MouseBindings, alloc: Allocator, input_: ?[]const u8) !void {
+        const value = input_ orelse return error.ValueRequired;
+
+        if (value.len == 0) {
+            self.set = .{};
+            return;
+        }
+
+        if (std.mem.eql(u8, value, "clear")) {
+            self.set = .{};
+            return;
+        }
+
+        try self.set.parseAndPut(alloc, value);
+    }
+
+    pub fn clone(self: *const MouseBindings, alloc: Allocator) !MouseBindings {
+        return .{ .set = try self.set.clone(alloc) };
+    }
+
+    pub fn equal(self: MouseBindings, other: MouseBindings) bool {
+        return self.set.equal(other.set);
+    }
+
+    pub fn formatEntry(self: MouseBindings, formatter: formatterpkg.EntryFormatter) !void {
+        if (self.set.bindings.count() == 0) {
+            try formatter.formatEntry(void, {});
+            return;
+        }
+
+        var buf: [1024]u8 = undefined;
+        var iter = self.set.bindings.iterator();
+        while (iter.next()) |next| {
+            const trigger = next.key_ptr.*;
+            const action = next.value_ptr.*;
+
+            var writer: std.Io.Writer = .fixed(&buf);
+
+            trigger.format(&writer) catch return error.OutOfMemory;
+            writer.print("={f}", .{action}) catch return error.OutOfMemory;
+            try formatter.formatEntry([]const u8, buf[0..writer.end]);
+        }
+    }
+    test "parseCLI" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var bindings: MouseBindings = .{};
+        try bindings.parseCLI(alloc, "ctrl+scroll_up=increase_font_size:1");
+        try testing.expectEqual(@as(usize, 1), bindings.set.bindings.count());
+    }
+
+    test "parseCLI null returns error" {
+        const testing = std.testing;
+        var bindings: MouseBindings = .{};
+        try testing.expectError(error.ValueRequired, bindings.parseCLI(testing.allocator, null));
+    }
+
+    test "parseCLI clear" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var bindings: MouseBindings = .{};
+        try bindings.parseCLI(alloc, "ctrl+scroll_up=increase_font_size:1");
+        try bindings.parseCLI(alloc, "clear");
+        try testing.expectEqual(@as(usize, 0), bindings.set.bindings.count());
+    }
+
+    test "parseCLI empty resets" {
+        const testing = std.testing;
+        var arena = ArenaAllocator.init(testing.allocator);
+        defer arena.deinit();
+        const alloc = arena.allocator();
+
+        var bindings: MouseBindings = .{};
+        try bindings.parseCLI(alloc, "ctrl+scroll_up=increase_font_size:1");
+        try bindings.parseCLI(alloc, "");
+        try testing.expectEqual(@as(usize, 0), bindings.set.bindings.count());
     }
 };
 
